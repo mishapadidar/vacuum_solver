@@ -228,3 +228,41 @@ class SheetCurrent(Optimizable):
             B[i] = mu0_over_4pi * np.sum(cross * dA, axis=(0, 1))
         
         return B
+    
+    def B_normal(self, surf):
+        """
+        Compute the normal field error on a surface.
+
+        Parameters:
+            surf (Surface): A Simsopt surface object.
+        
+        Returns:
+            np.ndarray: (nphi, ntheta) array of the normal field error at the surface quadrature points.
+        """
+        X = surf.gamma() # (nphi, ntheta, 3)
+        B = self.B(X.reshape(-1, 3)).reshape(X.shape) # (nphi, ntheta, 3)
+        n = surf.unitnormal()
+        Bn = np.sum(B * n, axis=-1) # (nphi, ntheta)
+        return Bn
+    
+    def squared_flux(self, surf):
+        """
+        Compute the total squared flux error on a surface,
+
+            J_B = int (B * unit_normal)^2 dS.
+
+        Parameters:
+            surf (Surface): A Simsopt surface object.
+        
+        Returns:
+            float: The squared flux error on the surface.
+        """
+        Bn = self.B_normal(surf)
+        # TODO: use simsopt surf.darea here
+        normal = self.surface.normal() # (nphi, ntheta, 3)
+        dtheta = np.diff(self.surface.quadpoints_theta)[0]
+        dphi = np.diff(self.surface.quadpoints_phi)[0]
+        dA = dphi * dtheta * np.linalg.norm(normal, axis=-1, keepdims=True)
+        squaredflux = np.sum(Bn**2 * dA)
+        return squaredflux
+

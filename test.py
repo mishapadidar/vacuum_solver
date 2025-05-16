@@ -49,3 +49,6 @@ ax = fig.add_subplot(111, projection='3d')
 sc = ax.plot_surface(X[:, :, 0], X[:, :, 1], X[:, :, 2], facecolors=plt.cm.viridis(B_norm), rstride=1, cstride=1, antialiased=True, shade=False)
 plt.colorbar(sc, label='|B|')
 plt.show()
+
+# compute squared flux
+print(current.squared_flux(surf))
