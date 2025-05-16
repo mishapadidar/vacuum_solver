@@ -25,6 +25,7 @@ class SheetCurrent(Optimizable):
         self.I_P = I_P
         self.M = M # poloidal
         self.N = N # toroidal
+        self.jit = 1e-6 # regularization parameter for the least squares problem
 
         self._set_names()
         
@@ -245,6 +246,40 @@ class SheetCurrent(Optimizable):
         Bn = np.sum(B * n, axis=-1) # (nphi, ntheta)
         return Bn
     
+    def build_linear_system(self, surf):
+        """ 
+        Build the linear system for the least squares problem.
+
+        """
+        return NotImplementedError("build_linear_system not implemented yet.")
+    
+        X = surf.gamma().reshape(-1, 3) # (nphi * ntheta, 3)
+
+        # get the quadrature points
+        quadpoints = self.surface.gamma()
+        dphi_prime = np.diff(self.surface.quadpoints_phi)[0]
+        dtheta_prime = np.diff(self.surface.quadpoints_theta)[0]
+        normal_prime = self.surface.normal()
+        dS_prime = dphi_prime * dtheta_prime * np.linalg.norm(normal_prime, axis=-1, keepdims=True)
+
+        mu0 =  1.256637061e-6
+        mu0_over_4pi = mu0 / (4 * np.pi)
+
+        nhat = self.surface.unitnormal() # (nphi', ntheta', 3)
+
+        # TODO: compute area element on S
+
+        # storage
+        H = np.zeros((X.shape[0], self.n_dofs)) # (nphi * ntheta, n_dofs)
+
+        # TODO: for each point on S
+        # TODO: for each fourier mode
+        # TODO: compute a BS integral of that mode: use a helper function for this.
+        # TODO: multiply biot-savart components by sqrt{dS}(r)
+        # TODO: put [B_s,..., B_c, ..., B_v] as a row in to H
+        
+        return H
+    
     def squared_flux(self, surf):
         """
         Compute the total squared flux error on a surface,
@@ -265,4 +300,28 @@ class SheetCurrent(Optimizable):
         dA = dphi * dtheta * np.linalg.norm(normal, axis=-1, keepdims=True)
         squaredflux = np.sum(Bn**2 * dA)
         return squaredflux
+
+    def solve(self, surf):
+        """Solve the linear least squares problem using QR factorization.
+
+            min_w |H @ w - y |^2
+
+        return solution w where,
+            R @ w = Q^T @ y
+        and H = Q @ R.
+
+        Args:
+            surf (Surface): Simsopt surface object.
+        """
+        H, y = self.build_linear_system(surf)
+        w = self.local_full_x
+        
+        # factorize H: R should be invertible when using 'reduced' QR.
+        pad = self.jit * np.eye(len(w))
+        Q, R = np.linalg.qr(H + pad, mode='reduced')
+
+        # solve normal equations
+        w =  np.linalg.solve(R, Q.T @ y)
+
+        return w
 
