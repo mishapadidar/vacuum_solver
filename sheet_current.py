@@ -191,3 +191,40 @@ class SheetCurrent(Optimizable):
         # secular term
         K += (self.I_P / 2 / np.pi) * n_cross_grad_phi
         return K
+    
+    def B(self, X):
+        """Compute the magnetic field at a set of points X
+        using the Biot-Savart law.
+
+        X should not be placed on the flux surface, as the Biot-Savart law will be singular.
+
+        Parameters:
+            X (np.ndarray): (n, 3) array of points where the magnetic field is computed.
+
+        Returns:
+            np.ndarray: (n, 3) array of the magnetic field at the points X.
+        """
+
+        # compute the sheet current
+        K = self.current() # (nphi, ntheta, 3)
+
+        # get the quadrature points
+        quadpoints = self.surface.gamma() # (nphi, ntheta, 3)
+        dphi = np.diff(self.surface.quadpoints_phi)[0]
+        dtheta = np.diff(self.surface.quadpoints_theta)[0]
+        normal = self.surface.normal() # (nphi, ntheta, 3)
+        dA = dphi * dtheta * np.linalg.norm(normal, axis=-1, keepdims=True)
+
+        mu0 =  1.256637061e-6 # N / A^2
+        mu0_over_4pi = mu0 / (4 * np.pi) 
+
+        # compute the magnetic field using the Biot-Savart law
+        B = np.zeros(np.shape(X))
+        for i in range(X.shape[0]):
+            diff = X[i] - quadpoints # (nphi, ntheta, 3)
+            dist = np.linalg.norm(diff, axis=-1, keepdims=True) # (nphi, ntheta, 1)
+            kernel = diff / (dist**3) # (nphi, ntheta, 3)
+            cross = np.cross(K, kernel, axis=-1) # (nphi, ntheta, 3)
+            B[i] = mu0_over_4pi * np.sum(cross * dA, axis=(0, 1))
+        
+        return B
