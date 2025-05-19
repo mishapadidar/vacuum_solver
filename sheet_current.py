@@ -3,7 +3,7 @@ from simsopt._core import Optimizable
 
 
 class SheetCurrent(Optimizable):
-    def __init__(self, surface, I_P, M=8, N=8):
+    def __init__(self, surface, I_P, M=8, N=8, jit=1e-6):
         """
         Initialize the sheet current with the given parameters.
 
@@ -12,12 +12,15 @@ class SheetCurrent(Optimizable):
         where 
             Phi = tilde{Phi} + (I_P / 2 * pi) * phi
         and tilde{Phi} is doubly periodic on (theta, phi) in [0, 1] x [0, 1/nfp].
+
+        This class is often used to solve to find vacuum equilibrium for a given boundary.
         
         Parameters:
         surface (Surface): A Simsopt surface object.
         I_P (float): Poloidal current
         phi (float): The potential function.
         M,N (int): Highest fourier mode number (inclusive) in the poloidal and toroidal directions.
+        jit (float): Tikhonov regularization parameter for the least squares problem.
         """
         self.surface = surface
         self.nfp = surface.nfp
@@ -25,7 +28,7 @@ class SheetCurrent(Optimizable):
         self.I_P = I_P
         self.M = M # poloidal
         self.N = N # toroidal
-        self.jit = 1e-6 # regularization parameter for the least squares problem
+        self.jit = jit # regularization parameter for the least squares problem
 
         self._set_names()
         
@@ -61,28 +64,6 @@ class SheetCurrent(Optimizable):
         """
         self.need_to_run_code = True
         return super().recompute_bell(parent)
-    
-    # def build_fourier_array(self):
-    #     """
-    #     Build an array of the Fourier harmonics evaluated at the surface quadrature points.
-
-    #     """
-    #     # Get the surface quadrature points
-    #     theta1d = self.surface.quadpoints_theta
-    #     phi1d = self.surface.quadpoints_phi
-    #     ntheta = len(theta1d)
-    #     nphi = len(phi1d)
-
-    #     thetas, phis = np.meshgrid(theta1d, phi1d, indexing='ij')
-
-    #     # Calculate the potential function
-    #     pot = np.zeros_like((ntheta, nphi))
-    #     for m in range(self.M+1):
-    #         for n in range(self.N+1):
-    #             phi += np.cos(2 * np.pi * (m * thetas - self.nfp * n * phis))
-    #             if not self.stellsym:
-    #                 phi += np.sin(2 * np.pi * (m * theta - self.nfp * n * phis))
-        
     
     def potential(self):
         """ Compute the potential at the surface quadrature points
@@ -245,6 +226,27 @@ class SheetCurrent(Optimizable):
         n = surf.unitnormal()
         Bn = np.sum(B * n, axis=-1) # (nphi, ntheta)
         return Bn
+
+    def squared_flux(self, surf):
+        """
+        Compute the total squared flux error on a surface,
+
+            J_B = int (B * unit_normal)^2 dS.
+
+        Parameters:
+            surf (Surface): A Simsopt surface object.
+        
+        Returns:
+            float: The squared flux error on the surface.
+        """
+        Bn = self.B_normal(surf)
+        # TODO: use simsopt surf.darea here
+        normal = self.surface.normal() # (nphi, ntheta, 3)
+        dtheta = np.diff(self.surface.quadpoints_theta)[0]
+        dphi = np.diff(self.surface.quadpoints_phi)[0]
+        dA = dphi * dtheta * np.linalg.norm(normal, axis=-1, keepdims=True)
+        squaredflux = np.sum(Bn**2 * dA)
+        return squaredflux
     
     def build_linear_system(self, surf):
         """ 
@@ -279,49 +281,36 @@ class SheetCurrent(Optimizable):
         # TODO: put [B_s,..., B_c, ..., B_v] as a row in to H
         
         return H
-    
-    def squared_flux(self, surf):
-        """
-        Compute the total squared flux error on a surface,
 
-            J_B = int (B * unit_normal)^2 dS.
-
-        Parameters:
-            surf (Surface): A Simsopt surface object.
-        
-        Returns:
-            float: The squared flux error on the surface.
-        """
-        Bn = self.B_normal(surf)
-        # TODO: use simsopt surf.darea here
-        normal = self.surface.normal() # (nphi, ntheta, 3)
-        dtheta = np.diff(self.surface.quadpoints_theta)[0]
-        dphi = np.diff(self.surface.quadpoints_phi)[0]
-        dA = dphi * dtheta * np.linalg.norm(normal, axis=-1, keepdims=True)
-        squaredflux = np.sum(Bn**2 * dA)
-        return squaredflux
-
-    def solve(self, surf):
-        """Solve the linear least squares problem using QR factorization.
-
-            min_w |H @ w - y |^2
-
-        return solution w where,
-            R @ w = Q^T @ y
-        and H = Q @ R.
+    def fit(self, surf):
+        """"Fit" the sheet to a given surface by minimizing the squared flux error,
+            min_w int |B * n|^2 dS,
+        over the fourier coefficients, w, of the periodic potential function.
+        The problem is equivalent to linear least squares problem,
+            min_w |H @ w - y |^2 + lambda |w|^2.
+        By writing the padded system,
+            min_w |A @ w - b |^2, 
+            A = [H; sqrt(lambda) * I]^T, b = [y; 0]^T,
+        The normal equations can be solved using QR factorization of A.
 
         Args:
-            surf (Surface): Simsopt surface object.
+            surf (Surface): Simsopt Surface object.
+
+        Returns:
+            np.ndarray: The solution w, representing the Fourier coefficients of the sheet current potential.
         """
         H, y = self.build_linear_system(surf)
         w = self.local_full_x
         
-        # factorize H: R should be invertible when using 'reduced' QR.
-        pad = self.jit * np.eye(len(w))
-        Q, R = np.linalg.qr(H + pad, mode='reduced')
+        # form padded system
+        pad = np.sqrt(self.jit) * np.eye(len(w))
+        A = np.vstack((H, pad))
+        b = np.hstack((y, 0.0 * w))
 
         # solve normal equations
-        w =  np.linalg.solve(R, Q.T @ y)
+        Q, R = np.linalg.qr(A, mode='reduced')
+        # TODO: can also solve w =  np.linalg.solve(R, Q.T @ b) when R.T is invertible
+        w =  np.linalg.solve(R.T @ R, R.T @ Q.T @ b)
 
         return w
 
