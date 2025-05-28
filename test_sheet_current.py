@@ -65,6 +65,7 @@ def test_names():
 
 
 def test_current():
+    """ Test the current is tangent to the surface. """
     nfp = 1
     surf = SurfaceRZFourier(nfp, stellsym=True, mpol=5, ntor=5, 
                             quadpoints_phi=np.linspace(0, 1/nfp, 128, endpoint=False),
@@ -84,7 +85,6 @@ def test_current():
     K = current.current()
     K = K / np.linalg.norm(K, axis=-1, keepdims=True)  # normalize K
     err = np.max(np.abs(np.sum(K * normal, axis=-1)))
-    print(err)
     assert err < 1e-14, "Current is not tangent to the surface: max error = {}".format(err)
 
 
@@ -97,13 +97,13 @@ def test_div_curl():
                             quadpoints_theta=np.linspace(0, 1, 128, endpoint=False))
     surf.set('rc(0,0)', 1.0)
     I_P = 1e5
-    M = 1
-    N = 1
+    M = 3
+    N = 3
     current = SheetCurrent(surf, I_P, M, N)
-    # current.set('c(0,0)', 1.23e5)
-    # current.set('c(1,0)', 2e5)
+    current.set('c(0,0)', 1.23e5)
+    current.set('c(1,0)', 2e5)
     current.set('c(0,1)', 2e5)
-    # current.set('c(0,3)', 0.01 * I_P)
+    current.set('c(0,3)', 0.01 * I_P)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -111,36 +111,21 @@ def test_div_curl():
 
     x0 = np.array([0.5, 0.03, 0.07])
 
-    # compute B
-    print("B at x0:")
-    print(current.B(x0.reshape(-1, 3)).flatten())
-
     # check gradB accuracy with finite difference
-    gradB_fd = finite_difference(magfield, x0, eps=1e-4)
-    print("gradB finite difference:")
-    print(gradB_fd)
+    gradB_fd = finite_difference(magfield, x0, eps=1e-5)
 
-    print("gradB symmetry error:")
-    print(gradB_fd - gradB_fd.T)
+    # test divergence is zero
+    err = np.trace(gradB_fd)
+    assert np.abs(err) < 1e-8, "Divergence of B is not zero: error = {}".format(err)
 
-    print('divergence of B:')
-    print(np.trace(gradB_fd))
-
-    print('curl of B:')
+    # test curl is zero
     curlB_fd = np.zeros(3)
     curlB_fd[0] = gradB_fd[2, 1] - gradB_fd[1, 2]
     curlB_fd[1] = gradB_fd[0, 2] - gradB_fd[2, 0]
     curlB_fd[2] = gradB_fd[1, 0] - gradB_fd[0, 1]
-    print(curlB_fd)
+    err = np.max(np.abs(curlB_fd))
+    assert err < 1e-8, "Curl of B is not zero: max error = {}".format(err)
 
-    # # Create a 3D plot
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection='3d')
-    # X = surf.gamma()
-    # sc = ax.plot_surface(X[:, :, 0], X[:, :, 1], X[:, :, 2], alpha=0.5)
-    # ax.scatter(x0[0], x0[1], x0[2], color='r', s=100, label='x0', zorder=100)
-    # plt.colorbar(sc, label='|K|')
-    # plt.show()
 
 def test_gradB():
     """ Test the gradient of the magnetic field using finite differences. """
@@ -151,13 +136,13 @@ def test_gradB():
                             quadpoints_theta=np.linspace(0, 1, 128, endpoint=False))
     surf.set('rc(0,0)', 1.0)
     I_P = 1e5
-    M = 1
-    N = 1
+    M = 3
+    N = 3
     current = SheetCurrent(surf, I_P, M, N)
     current.set('c(0,0)', 1.23e5)
     current.set('c(1,0)', 2e5)
     current.set('c(0,1)', 2e5)
-    # current.set('c(0,3)', 0.01 * I_P)
+    current.set('c(0,3)', 0.01 * I_P)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -167,48 +152,17 @@ def test_gradB():
 
     # compute gradB
     gradB = current.gradB(x0.reshape(-1, 3))[0]
-    print("gradB at x0:")
-    print(gradB)
 
     # check gradB accuracy with finite difference
-    gradB_fd = finite_difference(magfield, x0, eps=1e-4)
-    print("gradB finite difference:")
-    print(gradB_fd)
+    gradB_fd = finite_difference(magfield, x0, eps=1e-5)
 
-    print("gradB finite difference error:")
-    print(gradB - gradB_fd)
-
-
-def test_div_curl_simsopt():
-
-    from simsopt.field import BiotSavart, Current, coils_via_symmetries
-    from simsopt.geo import create_equally_spaced_curves
-
-    # Create the initial coils:
-    ncoils = 4
-    nfp = 2
-    base_curves = create_equally_spaced_curves(ncoils, nfp, stellsym=True, R0=1.0, R1=0.3, order=1, numquadpoints=128)
-    base_currents = [Current(1e5) for i in range(ncoils)]
-    coils = coils_via_symmetries(base_curves, base_currents, nfp, True)
-    bs = BiotSavart(coils)
-
-    x0 = np.array([0.25, 0.2, 0.07])
-    bs.set_points(x0.reshape((-1, 3)))
-
-    print("Magnetic field at x0:")
-    print(bs.B())
-
-    # check gradB symmetry error
-    gradB = bs.dB_by_dX()[0]
-    print("gradB at x0:")
-    print(gradB)
-    print("gradB symmetry error:")
-    print(gradB - gradB.T)
+    # check the gradient of B is accurate
+    err = np.max(np.abs(gradB - gradB_fd))
+    assert err < 1e-8, "Gradient of B is not accurate: max error = {}".format(err)
 
 
 if __name__ == "__main__":
     test_names()
-    # test_current()
-    # test_div_curl()
-    # test_gradB()
-    # test_div_curl_simsopt()
+    test_current()
+    test_div_curl()
+    test_gradB()
