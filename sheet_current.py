@@ -1,5 +1,6 @@
 import numpy as np
 from simsopt._core import Optimizable
+from util import rotate_nfp
 
 
 class SheetCurrent(Optimizable):
@@ -179,8 +180,7 @@ class SheetCurrent(Optimizable):
         return K
     
     def B(self, X):
-        """Compute the magnetic field at a set of points X
-        using the Biot-Savart law.
+        """Compute the magnetic field at a set of points X using the Biot-Savart law.
 
         X should not be placed on the flux surface, as the Biot-Savart law will be singular.
 
@@ -192,16 +192,25 @@ class SheetCurrent(Optimizable):
         """
 
         # compute the sheet current
-        K = self.current() # (nphi, ntheta, 3)
+        K_1fp = self.current() # (nphi, ntheta, 3)
 
         # get the quadrature points
-        quadpoints = self.surface.gamma() # (nphi, ntheta, 3)
-        # TODO: do i need to multiply/divide by nfp?
-        # TODO: do i need to rotate to get the entire torus?
+        quadpoints_1fp = self.surface.gamma() # (nphi, ntheta, 3)
+        nphi, ntheta, _ = quadpoints_1fp.shape
+
+        # rotate to get full torus
+        quadpoints = np.zeros((self.nfp * nphi, ntheta, 3))
+        K = np.zeros((self.nfp * nphi, ntheta, 3))
+        for ii in range(self.nfp):
+            quadpoints_1fp = rotate_nfp(quadpoints_1fp, self.nfp)
+            quadpoints[ii * nphi:(ii + 1) * nphi, :, :] = quadpoints_1fp
+            K_1fp = rotate_nfp(K_1fp, self.nfp)
+            K[ii * nphi:(ii + 1) * nphi, :, :] = K_1fp
+
         dphi = np.diff(self.surface.quadpoints_phi)[0]
         dtheta = np.diff(self.surface.quadpoints_theta)[0]
-        normal = self.surface.normal() # (nphi, ntheta, 3)
-        # TODO: i dont think we need dA since it is already in K?
+        # TODO: i dont think we need |n| in dA since it is already in K?
+        # normal = self.surface.normal() # (nphi, ntheta, 3)
         dA = dphi * dtheta #* np.linalg.norm(normal, axis=-1, keepdims=True)
 
         mu0 =  1.256637061e-6 # N / A^2
@@ -232,14 +241,25 @@ class SheetCurrent(Optimizable):
         """
 
         # compute the sheet current
-        K = self.current() # (nphi, ntheta, 3)
+        K_1fp = self.current() # (nphi, ntheta, 3)
 
         # get the quadrature points
-        quadpoints = self.surface.gamma() # (nphi, ntheta, 3)
+        quadpoints_1fp = self.surface.gamma() # (nphi, ntheta, 3)
+        nphi, ntheta, _ = quadpoints_1fp.shape
+
+        # rotate to get full torus
+        quadpoints = np.zeros((self.nfp * nphi, ntheta, 3))
+        K = np.zeros((self.nfp * nphi, ntheta, 3))
+        for ii in range(self.nfp):
+            quadpoints_1fp = rotate_nfp(quadpoints_1fp, self.nfp)
+            quadpoints[ii * nphi:(ii + 1) * nphi, :, :] = quadpoints_1fp
+            K_1fp = rotate_nfp(K_1fp, self.nfp)
+            K[ii * nphi:(ii + 1) * nphi, :, :] = K_1fp
+
         dphi = np.diff(self.surface.quadpoints_phi)[0]
         dtheta = np.diff(self.surface.quadpoints_theta)[0]
-        normal = self.surface.normal() # (nphi, ntheta, 3)
-        # TODO: do i need to multiply by |n|?
+        # TODO: i dont think we need |n| in dA since it is already in K?
+        # normal = self.surface.normal() # (nphi, ntheta, 3)
         dA = dphi * dtheta #* np.linalg.norm(normal, axis=-1, keepdims=True)
 
         mu0 =  1.256637061e-6 # N / A^2
