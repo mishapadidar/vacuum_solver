@@ -1,12 +1,7 @@
-from sheet_current import SheetCurrent
+import numpy as np
 from simsopt.geo import SurfaceRZFourier
-from simsopt.geo import plot
-import time
-import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.pyplot as plt
-from finite_difference import finite_difference
-import numpy as np
+from sheet_current import SheetCurrent
+from util import finite_difference
 
 def test_names():
     """ Test the names of the current dofs. """
