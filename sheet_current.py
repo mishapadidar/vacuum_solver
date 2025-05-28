@@ -45,12 +45,14 @@ class SheetCurrent(Optimizable):
         We always omit the s(0,0) term and in stellarator symmetry we omit all s(m,n) terms. 
         """
         names = []
+
+        # TODO: Matt says that stellsym is only the sine modes!
         for m in range(self.M+1):
             for n in range(self.N+1):
                 names += ['c({},{})'.format(m, n)]
         if not self.stellsym:
-            for m in range(self.M):
-                for n in range(self.N):
+            for m in range(self.M+1):
+                for n in range(self.N+1):
                     if m==0 and n==0:
                         continue
                     names += ['s({},{})'.format(m, n)]
@@ -93,10 +95,11 @@ class SheetCurrent(Optimizable):
             for n in range(self.N+1):
                 pot += dofs[idx] * np.cos(2 * np.pi * (m * thetas - self.nfp * n * phis))
                 idx += 1
+
         # sine modes
         if not self.stellsym:
-            for m in range(self.M):
-                for n in range(self.N):
+            for m in range(self.M+1):
+                for n in range(self.N+1):
                     if m==0 and n==0:
                         continue
                     pot += dofs[idx] * np.sin(2 * np.pi * (m * thetas - self.nfp * n * phis))
@@ -161,8 +164,8 @@ class SheetCurrent(Optimizable):
                 idx += 1
         # sine modes
         if not self.stellsym:
-            for m in range(self.M):
-                for n in range(self.N):
+            for m in range(self.M+1):
+                for n in range(self.N+1):
                     if m==0 and n==0:
                         continue
                     alpha = 2 * np.pi * (m * thetas - self.nfp * n * phis) # (nphi, ntheta)
@@ -172,6 +175,7 @@ class SheetCurrent(Optimizable):
             
         # secular term
         K += (self.I_P / 2 / np.pi) * n_cross_grad_phi
+
         return K
     
     def B(self, X):
@@ -192,10 +196,13 @@ class SheetCurrent(Optimizable):
 
         # get the quadrature points
         quadpoints = self.surface.gamma() # (nphi, ntheta, 3)
+        # TODO: do i need to multiply/divide by nfp?
+        # TODO: do i need to rotate to get the entire torus?
         dphi = np.diff(self.surface.quadpoints_phi)[0]
         dtheta = np.diff(self.surface.quadpoints_theta)[0]
         normal = self.surface.normal() # (nphi, ntheta, 3)
-        dA = dphi * dtheta * np.linalg.norm(normal, axis=-1, keepdims=True)
+        # TODO: i dont think we need dA since it is already in K?
+        dA = dphi * dtheta #* np.linalg.norm(normal, axis=-1, keepdims=True)
 
         mu0 =  1.256637061e-6 # N / A^2
         mu0_over_4pi = mu0 / (4 * np.pi) 
@@ -208,9 +215,57 @@ class SheetCurrent(Optimizable):
             kernel = diff / (dist**3) # (nphi, ntheta, 3)
             cross = np.cross(K, kernel, axis=-1) # (nphi, ntheta, 3)
             B[i] = mu0_over_4pi * np.sum(cross * dA, axis=(0, 1))
-        
+
         return B
-    
+
+    def gradB(self, X):
+        """Compute the gradient of the magnetic field at a set of points X
+        using the Biot-Savart law.
+
+        X should not be placed on the flux surface, as the Biot-Savart law will be singular.
+
+        Parameters:
+            X (np.ndarray): (n, 3) array of points where the magnetic field is computed.
+
+        Returns:
+            np.ndarray: (n, 3, 3) array of the gradient of the magnetic field at the points X.
+        """
+
+        # compute the sheet current
+        K = self.current() # (nphi, ntheta, 3)
+
+        # get the quadrature points
+        quadpoints = self.surface.gamma() # (nphi, ntheta, 3)
+        dphi = np.diff(self.surface.quadpoints_phi)[0]
+        dtheta = np.diff(self.surface.quadpoints_theta)[0]
+        normal = self.surface.normal() # (nphi, ntheta, 3)
+        # TODO: do i need to multiply by |n|?
+        dA = dphi * dtheta #* np.linalg.norm(normal, axis=-1, keepdims=True)
+
+        mu0 =  1.256637061e-6 # N / A^2
+        mu0_over_4pi = mu0 / (4 * np.pi) 
+        eye = np.eye(3) # (3, 3)
+
+        # compute the magnetic field using the Biot-Savart law
+        gradB = np.zeros((*np.shape(X), 3))
+        for i in range(X.shape[0]):
+
+            # gradient kernel
+            diff = X[i] - quadpoints # (nphi, ntheta, 3)
+            dist = np.sqrt(np.sum(diff**2, axis=-1, keepdims=True)) # (nphi, ntheta, 1)
+            dist_cubed = dist**3 # (nphi, ntheta, 1)
+            dist_fifth = dist**5 # (nphi, ntheta, 1)
+            second_term = 3 * diff / dist_fifth # (nphi, ntheta, 1)
+
+            for j in range(3):
+                # TODO: speed up by skipping operations with 0s in eye[j]
+                first_term = eye[j][None, None, :] / dist_cubed # (nphi, ntheta, 3)
+                dkernel_by_dj = first_term - diff[:,:,j][:,:,None] * second_term
+                cross = np.cross(K, dkernel_by_dj, axis=-1) # (nphi, ntheta, 3)
+                gradB[i, :, j] = mu0_over_4pi * np.sum(cross * dA, axis=(0, 1))
+
+        return gradB
+
     def B_normal(self, surf):
         """
         Compute the normal field error on a surface.
