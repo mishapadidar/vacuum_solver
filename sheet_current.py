@@ -26,6 +26,7 @@ class SheetCurrent(Optimizable):
         self.surface = surface
         self.nfp = surface.nfp
         self.stellsym = surface.stellsym
+        # TODO: I_P should be a dof
         self.I_P = I_P
         self.M = M # poloidal
         self.N = N # toroidal
@@ -315,47 +316,206 @@ class SheetCurrent(Optimizable):
             float: The squared flux error on the surface.
         """
         Bn = self.B_normal(surf)
+
         # TODO: use simsopt surf.darea here
-        normal = self.surface.normal() # (nphi, ntheta, 3)
-        dtheta = np.diff(self.surface.quadpoints_theta)[0]
-        dphi = np.diff(self.surface.quadpoints_phi)[0]
-        dA = dphi * dtheta * np.linalg.norm(normal, axis=-1, keepdims=True)
+        normal = surf.normal() # (nphi, ntheta, 3)
+        dtheta = np.diff(surf.quadpoints_theta)[0]
+        dphi = np.diff(surf.quadpoints_phi)[0]
+        dA = dphi * dtheta * np.linalg.norm(normal, axis=-1)
         squaredflux = np.sum(Bn**2 * dA)
         return squaredflux
+
+    def biot_savart_precomputation(self):
+        """ Precompute the necessary quantities for the Biot-Savart law.
+        This function computes the sheet current, the quadrature points, and the area element on the surface
+        and stores them as attributes of the class.
+        """
+        # TODO: this function should be called after the recompute_bell
+
+        # compute the sheet current
+        K_1fp = self.current() # (nphi, ntheta, 3)
+
+        # get the quadrature points
+        quadpoints_1fp = self.surface.gamma() # (nphi, ntheta, 3)
+
+        # normal
+        normal_1fp = self.surface.normal() # (nphi, ntheta, 3)
+
+        # compute grad(theta) and grad(phi)
+        dr_by_dphi = self.surface.gammadash1() # (nphi, ntheta, 3)
+        dr_by_dtheta = self.surface.gammadash2() # (nphi, ntheta, 3)
+        n_cross_grad_phi_1fp = dr_by_dtheta
+        n_cross_grad_theta_1fp = - dr_by_dphi
+
+        nphi, ntheta, _ = quadpoints_1fp.shape
+
+        # storage
+        quadpoints = np.zeros((self.nfp * nphi, ntheta, 3))
+        K = np.zeros((self.nfp * nphi, ntheta, 3))
+        normal = np.zeros((self.nfp * nphi, ntheta, 3))
+        n_cross_grad_phi = np.zeros((self.nfp * nphi, ntheta, 3))
+        n_cross_grad_theta = np.zeros((self.nfp * nphi, ntheta, 3))
+
+        # rotate to get full torus
+        for ii in range(self.nfp):
+            quadpoints_1fp = rotate_nfp(quadpoints_1fp, self.nfp)
+            quadpoints[ii * nphi:(ii + 1) * nphi, :, :] = quadpoints_1fp
+            K_1fp = rotate_nfp(K_1fp, self.nfp)
+            K[ii * nphi:(ii + 1) * nphi, :, :] = K_1fp
+            normal_1fp = rotate_nfp(normal_1fp, self.nfp)
+            normal[ii * nphi:(ii + 1) * nphi, :, :] = normal_1fp
+            n_cross_grad_phi_1fp = rotate_nfp(n_cross_grad_phi_1fp, self.nfp)
+            n_cross_grad_phi[ii * nphi:(ii + 1) * nphi, :, :] = n_cross_grad_phi_1fp
+            n_cross_grad_theta_1fp = rotate_nfp(n_cross_grad_theta_1fp, self.nfp)
+            n_cross_grad_theta[ii * nphi:(ii + 1) * nphi, :, :] = n_cross_grad_theta_1fp
+
+        self.K = K
+        self.quadpoints = quadpoints
+        self.normal = normal # (nphi, ntheta, 3)
+        self.n_cross_grad_phi = n_cross_grad_phi
+        self.n_cross_grad_theta = n_cross_grad_theta
+
+        dphi = np.diff(self.surface.quadpoints_phi)[0]
+        dtheta = np.diff(self.surface.quadpoints_theta)[0]
+        # TODO: i dont think we need |n| in dA since it is already in K?
+        # normal = self.surface.normal() # (nphi, ntheta, 3)
+        self.dA = dphi * dtheta #* np.linalg.norm(normal, axis=-1, keepdims=True)
+
+        mu0 =  1.256637061e-6 # N / A^2
+        self.mu0_over_4pi = mu0 / (4 * np.pi) 
+
+    def compute_h_fourier(self, x, nhat):
+        """
+        Compute the normal component of the projection of the field onto each fourier mode,
+
+        h_mn^C(r) = - B_mn^C(r) * nhat(r) = - mu0_over_4pi * int sin(alpha_mn') * [(n' x grad(alpha_mn')) x kernel(r,r')] * nhat(r) dA'
+        h_mn^S(r) = B_mn^S(r) * nhat(r) = mu0_over_4pi * int cos(alpha_mn') * [(n' x grad(alpha_mn')) x kernel(r,r')] * nhat(r) dA'
+
+        Args:
+            x (np.ndarray): (3,) array with a point in space where the field is evaluated.
+            nhat (np.ndarray): (3,) array with the unit normal vector at the point x.
+
+        Returns:
+            np.ndarray: (ndofs,) array of the normal component of the projection of the field onto each fourier mode. The array
+                is organized in the same way as the names array.
+        """
+        mu0_over_4pi = self.mu0_over_4pi # float
+        dA = self.dA # (nphi, ntheta, 1)
+        n_cross_grad_theta = self.n_cross_grad_theta # (nphi, ntheta, 3)
+        n_cross_grad_phi = self.n_cross_grad_phi # (nphi, ntheta, 3)
+
+        # kernel x nhat
+        diff = x - self.quadpoints # (nphi, ntheta, 3)
+        dist = np.linalg.norm(diff, axis=-1, keepdims=True) # (nphi, ntheta, 1)
+        kernel = diff / (dist**3) # (nphi, ntheta, 3)
+        kernel_cross_nhat = np.cross(kernel, nhat, axis=-1) # (nphi, ntheta, 3)
+
+        # TODO: double check we can just copy quadpoints_phi, nfp times
+        phi1d = np.concatenate([self.surface.quadpoints_phi for ii in range(self.nfp)])
+        theta1d = self.surface.quadpoints_theta
+        phis, thetas = np.meshgrid(phi1d, theta1d, indexing='ij')
+
+        # storage
+        h_array = np.zeros(self.n_dofs) # (ndofs,)
+
+        idx = 0
+        # compute h^C
+        for m in range(self.M+1):
+            for n in range(self.N+1):
+                fourier = - np.sin(2 * np.pi * (m * thetas - self.nfp * n * phis)) # (nphi, ntheta)
+                n_cross_grad_alpha = 2 * np.pi * (m * n_cross_grad_theta  - self.nfp * n * n_cross_grad_phi) # (nphi, ntheta, 3)
+                dot = np.sum(n_cross_grad_alpha * kernel_cross_nhat, axis=-1) # (nphi, ntheta)
+                h_array[idx] = mu0_over_4pi * np.sum(fourier * dot * dA, axis=(-2, -1)) # (ndofs,)     
+                idx += 1
+
+        # compute h^S
+        if not self.stellsym:
+            for m in range(self.M+1):
+                for n in range(self.N+1):
+                    if m==0 and n==0:
+                        continue
+                    fourier = np.cos(2 * np.pi * (m * thetas - self.nfp * n * phis)) # (nphi, ntheta)
+                    n_cross_grad_alpha = 2 * np.pi * (m * n_cross_grad_theta  - self.nfp * n * n_cross_grad_phi) # (nphi, ntheta, 3)
+                    dot = np.sum(n_cross_grad_alpha * kernel_cross_nhat, axis=-1) # (nphi, ntheta)
+                    h_array[idx] = mu0_over_4pi * np.sum(fourier * dot * dA, axis=(-2, -1)) # (ndofs,)     
+                    idx += 1
+
+        return h_array
+    
+
+    def compute_h_secular(self, x, nhat):
+        """
+        Compute the normal field generated by the secular term
+
+            h^P(r) = B^P(r) * nhat(r) = c * int [(n' x grad(phi')) x kernel(r,r')] * nhat(r) dA'
+            c = mu0_over_4pi * I_P / (2 * pi)
+
+        Args:
+            x (np.ndarray): (3,) array with a point in space where the secular term is evaluated.
+            nhat (np.ndarray): (3,) array with the unit normal vector at the point x.
+
+        Returns:
+            np.ndarray: The secular term for the Biot-Savart integral.
+        """
+        const = self.mu0_over_4pi * self.I_P / (2 * np.pi)
+
+        # kernel
+        diff = x - self.quadpoints # (nphi, ntheta, 3)
+        dist = np.linalg.norm(diff, axis=-1, keepdims=True) # (nphi, ntheta, 1)
+        kernel = diff / (dist**3) # (nphi, ntheta, 3)
+
+        # integrand
+        cross = np.cross(self.n_cross_grad_phi, kernel, axis=-1) # (nphi, ntheta, 3)
+        dot = np.sum(cross * nhat, axis=-1) # (nphi, ntheta)
+
+        B = const * np.sum(dot * self.dA)
+        return B
+
     
     def build_linear_system(self, surf):
         """ 
-        Build the linear system for the least squares problem.
+        Build the matrix H and vector y for the least squares problem. The rows of H
+        capture the projection of the normal field onto the Fourier modes, and y captures the secular term.
+        H is a (nphi * ntheta, ndofs) matrix, where nphi and ntheta are the number of quadrature points on
+        surf.
 
+        Args:
+            surf (Surface): Simsopt Surface object.
+        
+        Returns:
+            H (np.ndarray): (nphi * ntheta, ndofs) matrix representing the linear system.
+            y (np.ndarray): (nphi * ntheta,) array representing the right-hand side of the linear system.
         """
-        return NotImplementedError("build_linear_system not implemented yet.")
     
+        # points at which to evaluate loss
         X = surf.gamma().reshape(-1, 3) # (nphi * ntheta, 3)
+        nhat = surf.unitnormal().reshape(-1, 3) # (nphi * ntheta, 3)
 
-        # get the quadrature points
-        quadpoints = self.surface.gamma()
-        dphi_prime = np.diff(self.surface.quadpoints_phi)[0]
-        dtheta_prime = np.diff(self.surface.quadpoints_theta)[0]
-        normal_prime = self.surface.normal()
-        dS_prime = dphi_prime * dtheta_prime * np.linalg.norm(normal_prime, axis=-1, keepdims=True)
+        # area element of S
+        dphi = np.diff(surf.quadpoints_phi)[0]
+        dtheta = np.diff(surf.quadpoints_theta)[0]
+        normal = surf.normal() # (nphi, ntheta, 3)
+        dS = dphi * dtheta * np.linalg.norm(normal, axis=-1) # (nphi, ntheta)
+        sqrt_dS = np.sqrt(dS).reshape(-1) # (nphi * ntheta)
 
-        mu0 =  1.256637061e-6
-        mu0_over_4pi = mu0 / (4 * np.pi)
-
-        nhat = self.surface.unitnormal() # (nphi', ntheta', 3)
-
-        # TODO: compute area element on S
+        # precompute stuff for the Biot-Savart law
+        self.biot_savart_precomputation()
 
         # storage
         H = np.zeros((X.shape[0], self.n_dofs)) # (nphi * ntheta, n_dofs)
+        y = np.zeros(X.shape[0]) # (nphi * ntheta,)
 
-        # TODO: for each point on S
-        # TODO: for each fourier mode
-        # TODO: compute a BS integral of that mode: use a helper function for this.
-        # TODO: multiply biot-savart components by sqrt{dS}(r)
-        # TODO: put [B_s,..., B_c, ..., B_v] as a row in to H
+        # build the linear system
+        for ii, x_target in enumerate(X):
+
+            # biot-savart integral for each Fourier mode
+            H[ii] = self.compute_h_fourier(x_target, nhat[ii]) * sqrt_dS[ii]
+            
+            # build rhs: biot-savart of secular term
+            y[ii] = - self.compute_h_secular(x_target, nhat[ii]) * sqrt_dS[ii]
         
-        return H
+        return H, y
+
 
     def fit(self, surf):
         """"Fit" the sheet to a given surface by minimizing the squared flux error,
@@ -375,17 +535,22 @@ class SheetCurrent(Optimizable):
             np.ndarray: The solution w, representing the Fourier coefficients of the sheet current potential.
         """
         H, y = self.build_linear_system(surf)
-        w = self.local_full_x
         
         # form padded system
-        pad = np.sqrt(self.jit) * np.eye(len(w))
-        A = np.vstack((H, pad))
-        b = np.hstack((y, 0.0 * w))
+        if self.jit > 0.0:
+            pad = np.sqrt(self.jit) * np.eye(self.n_dofs) # (ndofs, ndofs)
+            A = np.vstack((H, pad))
+            b = np.hstack((y, np.zeros(self.n_dofs)))
+        else:
+            A = H
+            b = y
 
         # solve normal equations
         Q, R = np.linalg.qr(A, mode='reduced')
         # TODO: can also solve w =  np.linalg.solve(R, Q.T @ b) when R.T is invertible
         w =  np.linalg.solve(R.T @ R, R.T @ Q.T @ b)
+
+        self.local_full_x = w
 
         return w
 
