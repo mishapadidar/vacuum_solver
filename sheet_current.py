@@ -4,7 +4,7 @@ from util import rotate_nfp
 
 
 class SheetCurrent(Optimizable):
-    def __init__(self, surface, I_P, M=8, N=8, jit=1e-6):
+    def __init__(self, surface, I_P, M=8, N=8, jit=1e-13):
         """
         Initialize the sheet current with the given parameters.
 
@@ -26,7 +26,6 @@ class SheetCurrent(Optimizable):
         self.surface = surface
         self.nfp = surface.nfp
         self.stellsym = surface.stellsym
-        # TODO: I_P should be a dof
         self.I_P = I_P
         self.M = M # poloidal
         self.N = N # toroidal
@@ -43,21 +42,23 @@ class SheetCurrent(Optimizable):
 
         The degrees of freedom are the coefficients of the Fourier series
         for the layer potential,
-            x = [c(m,n), ... , s(m,n)]
-        We always omit the s(0,0) term and in stellarator symmetry we omit all s(m,n) terms. 
+            x = [s(m,n), ... , c(m,n)],
+        where s(m,n) and c(m,n) are the coefficients of the sine and cosine modes, respectively.
+        In stellarator symmetry, only the sine modes are used, so that the current (not potential)
+        is stell symmetric. We always omit the c(0,0) mode, since it has no effect on the
+        current.
         """
         names = []
 
-        # TODO: Matt says that stellsym is only the sine modes!
         for m in range(self.M+1):
             for n in range(self.N+1):
-                names += ['c({},{})'.format(m, n)]
+                names += ['s({},{})'.format(m, n)]
         if not self.stellsym:
             for m in range(self.M+1):
                 for n in range(self.N+1):
-                    if m==0 and n==0:
+                    if m == 0 and n == 0:
                         continue
-                    names += ['s({},{})'.format(m, n)]
+                    names += ['c({},{})'.format(m, n)]
         self.names = names
         self.n_dofs = len(self.names)
 
@@ -92,19 +93,19 @@ class SheetCurrent(Optimizable):
 
         # Calculate the potential function
         idx = 0
-        # cosine modes
+        # sine modes
         for m in range(self.M+1):
             for n in range(self.N+1):
-                pot += dofs[idx] * np.cos(2 * np.pi * (m * thetas - self.nfp * n * phis))
+                pot += dofs[idx] * np.sin(2 * np.pi * (m * thetas - self.nfp * n * phis))
                 idx += 1
 
-        # sine modes
+        # cos modes
         if not self.stellsym:
             for m in range(self.M+1):
                 for n in range(self.N+1):
                     if m==0 and n==0:
                         continue
-                    pot += dofs[idx] * np.sin(2 * np.pi * (m * thetas - self.nfp * n * phis))
+                    pot += dofs[idx] * np.cos(2 * np.pi * (m * thetas - self.nfp * n * phis))
                     idx += 1
         
         # secular term
@@ -157,22 +158,22 @@ class SheetCurrent(Optimizable):
 
         # Calculate the current
         idx = 0
-        # cosine modes
+        # sine modes
         for m in range(self.M+1):
             for n in range(self.N+1):
                 alpha = 2 * np.pi * (m * thetas - self.nfp * n * phis) # (nphi, ntheta)
                 n_cross_grad_alpha = 2 * np.pi * (m * n_cross_grad_theta  - self.nfp * n * n_cross_grad_phi) # (nphi, ntheta, 3)
-                K += - dofs[idx] * np.sin(alpha)[:,:,None] * n_cross_grad_alpha # (nphi, ntheta, 3)
+                K += dofs[idx] * np.cos(alpha)[:,:,None] * n_cross_grad_alpha # (nphi, ntheta, 3)
                 idx += 1
-        # sine modes
+        # cos modes
         if not self.stellsym:
             for m in range(self.M+1):
                 for n in range(self.N+1):
-                    if m==0 and n==0:
+                    if m == 0 and n == 0:
                         continue
                     alpha = 2 * np.pi * (m * thetas - self.nfp * n * phis) # (nphi, ntheta)
                     n_cross_grad_alpha = 2 * np.pi * (m * n_cross_grad_theta  - self.nfp * n * n_cross_grad_phi) # (nphi, ntheta, 3)
-                    K += dofs[idx] * np.cos(alpha)[:,:,None] * n_cross_grad_alpha # (nphi, ntheta, 3)
+                    K += - dofs[idx] * np.sin(alpha)[:,:,None] * n_cross_grad_alpha # (nphi, ntheta, 3)
                     idx += 1
             
         # secular term
@@ -182,8 +183,6 @@ class SheetCurrent(Optimizable):
     
     def B(self, X):
         """Compute the magnetic field at a set of points X using the Biot-Savart law.
-
-        X should not be placed on the flux surface, as the Biot-Savart law will be singular.
 
         Parameters:
             X (np.ndarray): (n, 3) array of points where the magnetic field is computed.
@@ -419,22 +418,22 @@ class SheetCurrent(Optimizable):
         h_array = np.zeros(self.n_dofs) # (ndofs,)
 
         idx = 0
-        # compute h^C
+        # compute h^S
         for m in range(self.M+1):
             for n in range(self.N+1):
-                fourier = - np.sin(2 * np.pi * (m * thetas - self.nfp * n * phis)) # (nphi, ntheta)
+                fourier = np.cos(2 * np.pi * (m * thetas - self.nfp * n * phis)) # (nphi, ntheta)
                 n_cross_grad_alpha = 2 * np.pi * (m * n_cross_grad_theta  - self.nfp * n * n_cross_grad_phi) # (nphi, ntheta, 3)
                 dot = np.sum(n_cross_grad_alpha * kernel_cross_nhat, axis=-1) # (nphi, ntheta)
                 h_array[idx] = mu0_over_4pi * np.sum(fourier * dot * dA, axis=(-2, -1)) # (ndofs,)     
                 idx += 1
 
-        # compute h^S
+        # compute h^C
         if not self.stellsym:
             for m in range(self.M+1):
                 for n in range(self.N+1):
-                    if m==0 and n==0:
+                    if m == 0 and n == 0:
                         continue
-                    fourier = np.cos(2 * np.pi * (m * thetas - self.nfp * n * phis)) # (nphi, ntheta)
+                    fourier = - np.sin(2 * np.pi * (m * thetas - self.nfp * n * phis)) # (nphi, ntheta)
                     n_cross_grad_alpha = 2 * np.pi * (m * n_cross_grad_theta  - self.nfp * n * n_cross_grad_phi) # (nphi, ntheta, 3)
                     dot = np.sum(n_cross_grad_alpha * kernel_cross_nhat, axis=-1) # (nphi, ntheta)
                     h_array[idx] = mu0_over_4pi * np.sum(fourier * dot * dA, axis=(-2, -1)) # (ndofs,)     

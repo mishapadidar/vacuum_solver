@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 
 nfp = 2
-surf = SurfaceRZFourier(nfp, stellsym=False, mpol=3, ntor=3, 
+surf = SurfaceRZFourier(nfp, stellsym=True, mpol=3, ntor=3, 
                         quadpoints_phi=np.linspace(0, 1/nfp, 31, endpoint=False),
                         quadpoints_theta=np.linspace(0, 1, 31, endpoint=False))
 surf.set('rc(0,1)', 0.1)
@@ -21,8 +21,8 @@ surf.set('zs(0,2)', 0.1)
 surf_outer = surf.copy()
 surf_outer.extend_via_normal(surf.get('rc(0,0)') / 8)
 I_P = 1e5
-M = 20
-N = 20
+M = 10
+N = 10
 current = SheetCurrent(surf_outer, I_P, M, N, jit=1e-12)
 
 
@@ -44,6 +44,8 @@ print(np.mean(np.linalg.norm(K, axis=-1)**2))
 # Create a 3D plot
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
+# copy the surface with more points for better visualization
+surf = surf.copy(nphi=128, ntheta=128)
 X = surf.gamma()
 Bnormal = current.B_normal(surf)
 norm = plt.Normalize(vmin=Bnormal.min(), vmax=Bnormal.max())

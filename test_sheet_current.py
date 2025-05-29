@@ -15,22 +15,24 @@ def test_names():
     M = 0
     N = 0
     current = SheetCurrent(surf, 1.0, M, N)
-    assert current.local_dof_names == ['c(0,0)'], "Incorrect names"
-    assert current.names == ['c(0,0)'], "Incorrect names"
+    assert current.local_dof_names == ['s(0,0)'], "Incorrect names"
+    assert current.names == ['s(0,0)'], "Incorrect names"
 
     # M=1, N=0 test
     M = 1
     N = 0
     current = SheetCurrent(surf, 1.0, M, N)
-    assert current.local_dof_names == ['c(0,0)', 'c(1,0)'], "Incorrect names"
-    assert current.names == ['c(0,0)', 'c(1,0)'], "Incorrect names"
+    dofs = ['s(0,0)', 's(1,0)']
+    assert current.local_dof_names == dofs, "Incorrect names"
+    assert current.names == dofs, "Incorrect names"
 
     # M=1, N=0 test
     M = 1
     N = 1
     current = SheetCurrent(surf, 1.0, M, N)
-    assert current.local_dof_names == ['c(0,0)', 'c(0,1)', 'c(1,0)', 'c(1,1)'], "Incorrect names"
-    assert current.names == ['c(0,0)', 'c(0,1)', 'c(1,0)', 'c(1,1)'], "Incorrect names"
+    dofs = ['s(0,0)', 's(0,1)', 's(1,0)', 's(1,1)']
+    assert current.local_dof_names == dofs, "Incorrect names"
+    assert current.names == dofs, "Incorrect names"
 
     """ stellsym = False  tests """
 
@@ -41,21 +43,23 @@ def test_names():
     M = 0
     N = 0
     current = SheetCurrent(surf, 1.0, M, N)
-    assert current.local_dof_names == ['c(0,0)'], "Incorrect names"
-    assert current.names == ['c(0,0)'], "Incorrect names"
+    dofs = ['s(0,0)']
+    assert current.local_dof_names == dofs, "Incorrect names"
+    assert current.names == dofs, "Incorrect names"
 
     # M=1, N=0 test
     M = 1
     N = 0
     current = SheetCurrent(surf, 1.0, M, N)
-    assert current.local_dof_names == ['c(0,0)', 'c(1,0)', 's(1,0)'], "Incorrect names"
-    assert current.names == ['c(0,0)', 'c(1,0)',  's(1,0)'], "Incorrect names"
+    dofs = ['s(0,0)', 's(1,0)', 'c(1,0)']
+    assert current.local_dof_names == dofs, "Incorrect names"
+    assert current.names == dofs, "Incorrect names"
 
     # M=1, N=0 test
     M = 1
     N = 1
     current = SheetCurrent(surf, 1.0, M, N)
-    sol = ['c(0,0)', 'c(0,1)', 'c(1,0)', 'c(1,1)', 's(0,1)', 's(1,0)', 's(1,1)']
+    sol = ['s(0,0)', 's(0,1)', 's(1,0)', 's(1,1)', 'c(0,1)', 'c(1,0)', 'c(1,1)']
     assert current.local_dof_names == sol, "Incorrect names"
     assert current.names == sol, "Incorrect names"
 
@@ -71,10 +75,10 @@ def test_current():
     M = 4
     N = 4
     current = SheetCurrent(surf, I_P, M, N)
-    current.set('c(0,0)', 1.23)
-    current.set('c(1,0)', 2)
-    current.set('c(0,1)', 0.01)
-    current.set('c(0,3)', 0.01)
+    current.set('s(0,0)', 1.23)
+    current.set('s(1,0)', 2)
+    current.set('s(0,1)', 0.01)
+    current.set('s(0,3)', 0.01)
 
     # test the current is tangent
     normal = current.surface.unitnormal() 
@@ -96,11 +100,11 @@ def test_B():
     M = 3
     N = 3
     current = SheetCurrent(surf, I_P, M, N)
-    current.set('c(0,0)', 1.23e5)
-    current.set('c(1,0)', 2e5)
-    current.set('c(0,1)', 2e5)
+    current.set('s(0,0)', 1.23e5)
+    current.set('s(1,0)', 2e5)
     current.set('s(0,1)', 2e5)
-    current.set('c(0,3)', 0.01 * I_P)
+    current.set('c(0,1)', 2e5)
+    current.set('s(0,3)', 0.01 * I_P)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -133,10 +137,10 @@ def test_B():
     M = 3
     N = 3
     current = SheetCurrent(surf, I_P, M, N)
-    current.set('c(0,0)', 1.23e5)
-    current.set('c(1,0)', 2e5)
-    current.set('c(0,1)', 2e5)
-    current.set('c(0,3)', 0.01 * I_P)
+    current.set('s(0,0)', 1.23e5)
+    current.set('s(1,0)', 2e5)
+    current.set('s(0,1)', 2e5)
+    current.set('s(0,3)', 0.01 * I_P)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -172,11 +176,11 @@ def test_gradB():
     M = 3
     N = 3
     current = SheetCurrent(surf, I_P, M, N)
-    current.set('c(0,0)', 1.23e5)
-    current.set('c(1,0)', 2e5)
-    current.set('c(0,1)', 2e5)
+    current.set('s(0,0)', 1.23e5)
+    current.set('s(1,0)', 2e5)
     current.set('s(0,1)', 2e5)
-    current.set('c(0,3)', 0.01 * I_P)
+    current.set('c(0,1)', 2e5)
+    current.set('s(0,3)', 0.01 * I_P)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -205,10 +209,10 @@ def test_gradB():
     M = 3
     N = 3
     current = SheetCurrent(surf, I_P, M, N)
-    current.set('c(0,0)', 1.23e5)
-    current.set('c(1,0)', 2e5)
-    current.set('c(0,1)', 2e5)
-    current.set('c(0,3)', 0.01 * I_P)
+    current.set('s(0,0)', 1.23e5)
+    current.set('s(1,0)', 2e5)
+    current.set('s(0,1)', 2e5)
+    current.set('s(0,3)', 0.01 * I_P)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -332,11 +336,11 @@ def test_fourier_field():
     current = SheetCurrent(surf_outer, I_P, 2, 2, jit = 0.0)
 
     # only turn on one fourier term
-    current.set('c(1,2)', 1.1e5)
-    current.set('c(1,0)', 1.2e5)
-    current.set('c(0,1)', 1.3e5)
-    current.set('c(1,1)', 0.932e5)
+    current.set('s(1,2)', 1.1e5)
+    current.set('s(1,0)', 1.2e5)
+    current.set('s(0,1)', 1.3e5)
     current.set('s(1,1)', 0.932e5)
+    current.set('c(1,1)', 0.932e5)
 
     # compute B*n
     B_dot_n = current.B_normal(surf).reshape(-1)  # (nphi * ntheta,)
@@ -371,8 +375,8 @@ def test_linear_system():
     M = 2
     N = 2
     current = SheetCurrent(surf_outer, I_P, M, N, jit = 0.0)
-    current.set('c(0,0)', 1.0e5)  # set the current at the M=0, N=0 mode
-    current.set('c(0,1)', 1.1e5)  # set the current at the M=1, N=0 mode to zero
+    current.set('s(0,0)', 1.0e5)  # set the current at the M=0, N=0 mode
+    current.set('s(0,1)', 1.1e5)  # set the current at the M=1, N=0 mode to zero
 
     H, y = current.build_linear_system(surf)
 
