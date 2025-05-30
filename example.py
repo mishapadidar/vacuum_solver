@@ -18,12 +18,29 @@ surf.set('rc(0,3)', 0.1)
 surf.set('zs(0,1)', 0.2)
 surf.set('zs(0,2)', 0.1)
 
+
+
 surf_outer = surf.copy()
-surf_outer.extend_via_normal(surf.get('rc(0,0)') / 8)
+mr = surf.minor_radius()
+surf_outer.extend_via_normal(mr*2)
 I_P = 1e5
 M = 10
 N = 10
 current = SheetCurrent(surf_outer, I_P, M, N, jit=1e-12)
+current.set('s(0,0)', 1.e5)
+current.set('s(0,1)', 1.e5)
+current.set('s(1,0)', 1.e5)
+
+
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+X = surf.gamma()
+sc = ax.plot_surface(X[:, :, 0], X[:, :, 1], X[:, :, 2])
+X = surf_outer.gamma()
+sc = ax.plot_surface(X[:, :, 0], X[:, :, 1], X[:, :, 2], alpha=0.5)
+plt.tight_layout()
+plt.show()
+
 
 
 # check the squared flux
