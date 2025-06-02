@@ -71,10 +71,10 @@ def test_current():
                             quadpoints_phi=np.linspace(0, 1/nfp, 128, endpoint=False),
                             quadpoints_theta=np.linspace(0, 1, 128, endpoint=False))
     surf.set('rc(0,0)', 1.0)
-    I_P = 1.0
+    G = 1.0
     M = 4
     N = 4
-    current = SheetCurrent(surf, I_P, M, N)
+    current = SheetCurrent(surf, G, M, N)
     current.set('s(0,0)', 1.23)
     current.set('s(1,0)', 2)
     current.set('s(0,1)', 0.01)
@@ -96,15 +96,15 @@ def test_B():
                             quadpoints_phi=np.linspace(0, 1/nfp, 128, endpoint=False),
                             quadpoints_theta=np.linspace(0, 1, 128, endpoint=False))
     surf.set('rc(0,0)', 1.0)
-    I_P = 1e5
+    G = 1e0
     M = 3
     N = 3
-    current = SheetCurrent(surf, I_P, M, N)
-    current.set('s(0,0)', 1.23e5)
-    current.set('s(1,0)', 2e5)
-    current.set('s(0,1)', 2e5)
-    current.set('c(0,1)', 2e5)
-    current.set('s(0,3)', 0.01 * I_P)
+    current = SheetCurrent(surf, G, M, N)
+    current.set('s(0,0)', 1.23)
+    current.set('s(1,0)', 2)
+    current.set('s(0,1)', 2)
+    current.set('c(0,1)', 2)
+    current.set('s(0,3)', 0.01 * G)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -113,10 +113,11 @@ def test_B():
     x0 = np.array([0.5, 0.03, 0.07])
 
     # check gradB accuracy with finite difference
-    gradB_fd = finite_difference(magfield, x0, eps=1e-5)
+    gradB_fd = finite_difference(magfield, x0, eps=1e-6)
 
     # test divergence is zero
     err = np.trace(gradB_fd)
+    print('divergence err', err)
     assert np.abs(err) < 1e-8, "Divergence of B is not zero: error = {}".format(err)
 
     # test curl is zero
@@ -125,6 +126,7 @@ def test_B():
     curlB_fd[1] = gradB_fd[0, 2] - gradB_fd[2, 0]
     curlB_fd[2] = gradB_fd[1, 0] - gradB_fd[0, 1]
     err = np.max(np.abs(curlB_fd))
+    print('curlB_fd err', err)
     assert err < 1e-8, "Curl of B is not zero: max error = {}".format(err)
 
     """ Now test with multiple nfp"""
@@ -133,14 +135,14 @@ def test_B():
                             quadpoints_phi=np.linspace(0, 1/nfp, 128, endpoint=False),
                             quadpoints_theta=np.linspace(0, 1, 128, endpoint=False))
     surf.set('rc(0,0)', 1.0)
-    I_P = 1e5
+    G = 1e0
     M = 3
     N = 3
-    current = SheetCurrent(surf, I_P, M, N)
-    current.set('s(0,0)', 1.23e5)
-    current.set('s(1,0)', 2e5)
-    current.set('s(0,1)', 2e5)
-    current.set('s(0,3)', 0.01 * I_P)
+    current = SheetCurrent(surf, G, M, N)
+    current.set('s(0,0)', 1.23)
+    current.set('s(1,0)', 2)
+    current.set('s(0,1)', 2)
+    current.set('s(0,3)', 0.01 * G)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -153,6 +155,7 @@ def test_B():
 
     # test divergence is zero
     err = np.trace(gradB_fd)
+    print('divergence err', err)
     assert np.abs(err) < 1e-8, "Divergence of B is not zero: error = {}".format(err)
 
     # test curl is zero
@@ -161,6 +164,7 @@ def test_B():
     curlB_fd[1] = gradB_fd[0, 2] - gradB_fd[2, 0]
     curlB_fd[2] = gradB_fd[1, 0] - gradB_fd[0, 1]
     err = np.max(np.abs(curlB_fd))
+    print('curlB_fd err', err)
     assert err < 1e-8, "Curl of B is not zero: max error = {}".format(err)
 
 
@@ -172,15 +176,15 @@ def test_gradB():
                             quadpoints_phi=np.linspace(0, 1/nfp, 128, endpoint=False),
                             quadpoints_theta=np.linspace(0, 1, 128, endpoint=False))
     surf.set('rc(0,0)', 1.0)
-    I_P = 1e5
+    G = 1e0
     M = 3
     N = 3
-    current = SheetCurrent(surf, I_P, M, N)
-    current.set('s(0,0)', 1.23e5)
-    current.set('s(1,0)', 2e5)
-    current.set('s(0,1)', 2e5)
-    current.set('c(0,1)', 2e5)
-    current.set('s(0,3)', 0.01 * I_P)
+    current = SheetCurrent(surf, G, M, N)
+    current.set('s(0,0)', 1.23)
+    current.set('s(1,0)', 2)
+    current.set('s(0,1)', 2)
+    current.set('c(0,1)', 2)
+    current.set('s(0,3)', 0.01 * G)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -196,6 +200,7 @@ def test_gradB():
 
     # check the gradient of B is accurate
     err = np.max(np.abs(gradB - gradB_fd))
+    print('gradB_fd err', err)
     assert err < 1e-8, "Gradient of B is not accurate: max error = {}".format(err)
 
     """ Now test with multiple nfp"""
@@ -205,14 +210,14 @@ def test_gradB():
                             quadpoints_phi=np.linspace(0, 1/nfp, 128, endpoint=False),
                             quadpoints_theta=np.linspace(0, 1, 128, endpoint=False))
     surf.set('rc(0,0)', 1.0)
-    I_P = 1e5
+    G = 1e0
     M = 3
     N = 3
-    current = SheetCurrent(surf, I_P, M, N)
-    current.set('s(0,0)', 1.23e5)
-    current.set('s(1,0)', 2e5)
-    current.set('s(0,1)', 2e5)
-    current.set('s(0,3)', 0.01 * I_P)
+    current = SheetCurrent(surf, G, M, N)
+    current.set('s(0,0)', 1.23)
+    current.set('s(1,0)', 2)
+    current.set('s(0,1)', 2)
+    current.set('s(0,3)', 0.01 * G)
 
     def magfield(x):
         """ compute the magnetic field at x """
@@ -228,6 +233,7 @@ def test_gradB():
 
     # check the gradient of B is accurate
     err = np.max(np.abs(gradB - gradB_fd))
+    print('gradB_fd err', err)
     assert err < 1e-8, "Gradient of B is not accurate: max error = {}".format(err)
 
 
@@ -241,10 +247,10 @@ def test_fit():
                             quadpoints_phi=np.linspace(0, 1/nfp, 128, endpoint=False),
                             quadpoints_theta=np.linspace(0, 1, 128, endpoint=False))
     surf.set('rc(0,0)', 1.0)
-    I_P = 1.0
+    G = 1.0
     M = 2
     N = 2
-    current = SheetCurrent(surf, I_P, M, N, jit = 0.0)
+    current = SheetCurrent(surf, G, M, N, jit = 0.0)
 
     """ Test a linear system with a unique solution"""
 
@@ -269,7 +275,7 @@ def test_fit():
     """ Test a least squares problem"""
 
     jit = 1e-6
-    current = SheetCurrent(surf, I_P, M, N, jit = jit)
+    current = SheetCurrent(surf, G, M, N, jit = jit)
 
     # Mock the build_linear_system method
     np.random.seed(0)
@@ -295,20 +301,24 @@ def test_secular_field():
     surf = SurfaceRZFourier(nfp, stellsym=True, mpol=2, ntor=2, 
                             quadpoints_phi=np.linspace(0, 1/nfp, 17, endpoint=False),
                             quadpoints_theta=np.linspace(0, 1, 17, endpoint=False))
+    
+    # we need toroidal shaping to test secular term
+    surf.set('rc(0,0)', 1.0)
+    surf.set('rc(0,1)', 0.1)
+    surf.set('zs(0,2)', 0.1)
 
     # initialize the SheetCurrent
     surf_outer = surf.copy()
     surf_outer.extend_via_normal(surf.get('rc(0,0)') / 8)
-    I_P = 1.2e5
+    G = 1.2
     M = 2
     N = 2
-    current = SheetCurrent(surf_outer, I_P, M, N, jit = 0.0)
+    current = SheetCurrent(surf_outer, G, M, N, jit = 0.0)
 
     # biot savart returns secular term when fourier coeffs are zero
     X = surf.gamma().reshape(-1, 3) # (nphi * ntheta, 3)
     nhat = surf.unitnormal().reshape(-1, 3) # (nphi * ntheta, 3)
-    B = current.B(X)
-    h_secular = np.sum(B * nhat, axis=-1)  # (nphi * ntheta,)
+    h_secular = current.B_normal(surf).reshape(-1)  # (nphi * ntheta,)
 
     # compute secular term
     current.biot_savart_precomputation()
@@ -316,31 +326,35 @@ def test_secular_field():
         # alternative computation of secular term
         h_secular_alt = current.compute_h_secular(x_target, nhat[ii])
         err = h_secular[ii] - h_secular_alt
-        assert err < 1e-12, "Secular term is not correct: error = {}".format(err)
+        # print("Secular term error at point {}: {}".format(ii, err))
+        assert err < 1e-14, "Secular term is not correct: error = {}".format(err)
 
 def test_fourier_field():
     """ Test the fourier magnetic field in the SheetCurrent class. """
     # Create a surface
     nfp = 3
-    surf = SurfaceRZFourier(nfp, stellsym=False, mpol=1, ntor=1, 
+    surf = SurfaceRZFourier(nfp, stellsym=False, mpol=2, ntor=2, 
                             quadpoints_phi=np.linspace(0, 1/nfp, 7, endpoint=False),
                             quadpoints_theta=np.linspace(0, 1, 7, endpoint=False))
+    surf.set('rc(0,0)', 1.0)
+    surf.set('rc(0,1)', 0.1)
+    surf.set('zs(0,2)', 0.1)
 
     # initialize the SheetCurrent
     surf_outer = surf.copy()
     surf_outer.extend_via_normal(surf.get('rc(0,0)') / 8)
     
-    # set I_P to zero to remove secular term
-    I_P = 0.0
+    # set G to zero to remove secular term
+    G = 0.0
 
-    current = SheetCurrent(surf_outer, I_P, 2, 2, jit = 0.0)
+    current = SheetCurrent(surf_outer, G, 2, 2, jit = 0.0)
 
     # only turn on one fourier term
-    current.set('s(1,2)', 1.1e5)
-    current.set('s(1,0)', 1.2e5)
-    current.set('s(0,1)', 1.3e5)
-    current.set('s(1,1)', 0.932e5)
-    current.set('c(1,1)', 0.932e5)
+    current.set('s(1,2)', 1.1)
+    current.set('s(1,0)', 1.2)
+    current.set('s(0,1)', 1.3)
+    current.set('s(1,1)', 0.932)
+    current.set('c(1,1)', 0.932)
 
     # compute B*n
     B_dot_n = current.B_normal(surf).reshape(-1)  # (nphi * ntheta,)
@@ -353,7 +367,7 @@ def test_fourier_field():
         h_fourier_alt = current.compute_h_fourier(x_target, nhat[ii])
         B_dot_n_alt = np.sum(h_fourier_alt * current.local_full_x) # since we only have one fourier term
         err = np.abs(B_dot_n[ii] - B_dot_n_alt)
-        assert err < 1e-12, "Fourier term is not correct: error = {}".format(err)
+        assert err < 1e-14, "Fourier term is not correct: error = {}".format(err)
 
 
 def test_linear_system():
@@ -371,12 +385,12 @@ def test_linear_system():
     # initialize the SheetCurrent
     surf_outer = surf.copy()
     surf_outer.extend_via_normal(surf.get('rc(0,0)') / 8)
-    I_P = 1.2e5
+    G = 1.2
     M = 2
     N = 2
-    current = SheetCurrent(surf_outer, I_P, M, N, jit = 0.0)
-    current.set('s(0,0)', 1.0e5)  # set the current at the M=0, N=0 mode
-    current.set('s(0,1)', 1.1e5)  # set the current at the M=1, N=0 mode to zero
+    current = SheetCurrent(surf_outer, G, M, N, jit = 0.0)
+    current.set('s(0,0)', 1.0)  # set the current at the M=0, N=0 mode
+    current.set('s(0,1)', 1.1)  # set the current at the M=1, N=0 mode to zero
 
     H, y = current.build_linear_system(surf)
 

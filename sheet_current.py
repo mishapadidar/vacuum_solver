@@ -4,32 +4,51 @@ from util import rotate_nfp
 
 
 class SheetCurrent(Optimizable):
-    def __init__(self, surface, I_P, M=8, N=8, jit=1e-13):
+    def __init__(self, surface, G, M=8, N=8, jit=1e-13):
         """
         Initialize the sheet current with the given parameters.
 
         The sheet current is defined as:
             K = n x grad(Phi)
         where 
-            Phi = tilde{Phi} + (I_P / 2 * pi) * phi
+            Phi = tilde{Phi} + G * phi
         and tilde{Phi} is doubly periodic on (theta, phi) in [0, 1] x [0, 1/nfp].
+        Boozer's G is defined as 
+            G = mu0 * I_P / (2 * pi),
+        where I_P is the sum of the currents through the hole in the torus.
 
         This class is often used to solve to find vacuum equilibrium for a given boundary.
+
+        Example usage:
+            coils = ...
+            surf = ...
+            I_P = np.abs(sum([np.abs(coil.current.get_value()) for coil in coils]))
+            mu0 =  4 * np.pi * 10**(-7)
+            G = I_P * mu0 # in Simsopt, grad(phi) absorbs the 1/2pi factor since angles are on [0, 1]
+            surf_winding = surf.to_RZFourier().copy(ntheta=2 * M + 1, nphi=2 * N + 1, range='field period')
+            surf_winding.extend_via_normal(2 * surf.minor_radius())
+            current = SheetCurrent(surf_winding, G, M, N)
+            current.fit(surf)
+            print(current.squared_flux(surf))
         
         Parameters:
-        surface (Surface): A Simsopt surface object.
-        I_P (float): Poloidal current
-        phi (float): The potential function.
-        M,N (int): Highest fourier mode number (inclusive) in the poloidal and toroidal directions.
-        jit (float): Tikhonov regularization parameter for the least squares problem.
+            surface (Surface): A Simsopt surface object.
+            G (float): Normalized poloidal current.
+            phi (float): The potential function.
+            M,N (int): Highest fourier mode number (inclusive) in the poloidal and toroidal directions.
+            jit (float): Tikhonov regularization parameter for the least squares problem.
         """
         self.surface = surface
         self.nfp = surface.nfp
         self.stellsym = surface.stellsym
-        self.I_P = I_P
+        self.G = G
         self.M = M # poloidal
         self.N = N # toroidal
         self.jit = jit # regularization parameter for the least squares problem
+
+        # constants
+        self.mu0 =  1.256637061e-6 # N / A^2
+        self.mu0_over_4pi = self.mu0 / (4 * np.pi) 
 
         self._set_names()
         
@@ -72,7 +91,7 @@ class SheetCurrent(Optimizable):
     
     def potential(self):
         """ Compute the potential at the surface quadrature points
-            Phi = tilde{Phi} + (I_P / 2 * pi) * phi
+            Phi = tilde{Phi} + G * phi
         and tilde{Phi} is doubly periodic on (theta, phi) in [0, 1] x [0, 1/nfp].
             tilde{Phi} = sum_{m=0}^{M} sum_{n=0}^{N} c(m,n) * cos(2 * pi (m * theta - nfp * n * phi )) 
                         + s(m,n) * sin(2 * pi (m * theta - nfp * n * phi ))
@@ -109,11 +128,13 @@ class SheetCurrent(Optimizable):
                     idx += 1
         
         # secular term
-        pot += (self.I_P / 2 / np.pi) * phis
+        pot += (self.G) * phis
         return pot
     
     def current(self):
-        """ Compute the sheet current at the quadrature points on S'.
+        """ Compute the sheet current at the quadrature points on S'. This function evaluates
+            K * dS' at the surface quadrature points, where K is the sheet current and S' is the
+            winding surface.
 
         Simsopt surfaces obey the ordering (phi, theta), so,
             n = dr/dphi x dr/dtheta.
@@ -123,14 +144,14 @@ class SheetCurrent(Optimizable):
             n x grad(phi) = dr/dtheta
 
         The potential is given by,
-            Phi = tilde{Phi} + (I_P / 2 * pi) * phi
+            Phi = tilde{Phi} + G * phi
         and
             tilde{Phi} = sum_{m,n} c(m,n) * cos(alpha_mn) + s(m,n) * sin(alpha_mn),
         where
             alpha_mn = 2 * pi (m * theta - nfp * n * phi ).
         The sheet current is,
-            K = n x [grad(tilde{Phi}) + (I_P / 2 * pi) * grad(phi)]
-              = (I_P / 2 * pi) * dr/dtheta + 
+            mu0 * K * dS' = n x [grad(tilde{Phi}) + G * grad(phi)]
+              = G * dr/dtheta + 
                 + sum_{m,n} [-c(m,n) * sin(alpha_mn) + s(m,n) * cos(alpha_mn)] * (n x grad(alpha_mn))
         where
             n x grad(alpha_mn) = 2 * pi (m * n x grad(theta) - nfp * n * n x grad(phi) )
@@ -177,7 +198,10 @@ class SheetCurrent(Optimizable):
                     idx += 1
             
         # secular term
-        K += (self.I_P / 2 / np.pi) * n_cross_grad_phi
+        K += self.G * n_cross_grad_phi
+
+        # scale by mu0
+        K = K / self.mu0 
 
         return K
     
@@ -209,12 +233,7 @@ class SheetCurrent(Optimizable):
 
         dphi = np.diff(self.surface.quadpoints_phi)[0]
         dtheta = np.diff(self.surface.quadpoints_theta)[0]
-        # TODO: i dont think we need |n| in dA since it is already in K?
-        # normal = self.surface.normal() # (nphi, ntheta, 3)
-        dA = dphi * dtheta #* np.linalg.norm(normal, axis=-1, keepdims=True)
-
-        mu0 =  1.256637061e-6 # N / A^2
-        mu0_over_4pi = mu0 / (4 * np.pi) 
+        dA = dphi * dtheta
 
         # compute the magnetic field using the Biot-Savart law
         B = np.zeros(np.shape(X))
@@ -223,7 +242,7 @@ class SheetCurrent(Optimizable):
             dist = np.linalg.norm(diff, axis=-1, keepdims=True) # (nphi, ntheta, 1)
             kernel = diff / (dist**3) # (nphi, ntheta, 3)
             cross = np.cross(K, kernel, axis=-1) # (nphi, ntheta, 3)
-            B[i] = mu0_over_4pi * np.sum(cross * dA, axis=(0, 1))
+            B[i] = self.mu0_over_4pi * np.sum(cross * dA, axis=(0, 1))
 
         return B
 
@@ -258,12 +277,8 @@ class SheetCurrent(Optimizable):
 
         dphi = np.diff(self.surface.quadpoints_phi)[0]
         dtheta = np.diff(self.surface.quadpoints_theta)[0]
-        # TODO: i dont think we need |n| in dA since it is already in K?
-        # normal = self.surface.normal() # (nphi, ntheta, 3)
-        dA = dphi * dtheta #* np.linalg.norm(normal, axis=-1, keepdims=True)
+        dA = dphi * dtheta
 
-        mu0 =  1.256637061e-6 # N / A^2
-        mu0_over_4pi = mu0 / (4 * np.pi) 
         eye = np.eye(3) # (3, 3)
 
         # compute the magnetic field using the Biot-Savart law
@@ -282,7 +297,7 @@ class SheetCurrent(Optimizable):
                 first_term = eye[j][None, None, :] / dist_cubed # (nphi, ntheta, 3)
                 dkernel_by_dj = first_term - diff[:,:,j][:,:,None] * second_term
                 cross = np.cross(K, dkernel_by_dj, axis=-1) # (nphi, ntheta, 3)
-                gradB[i, :, j] = mu0_over_4pi * np.sum(cross * dA, axis=(0, 1))
+                gradB[i, :, j] = self.mu0_over_4pi * np.sum(cross * dA, axis=(0, 1))
 
         return gradB
 
@@ -376,12 +391,8 @@ class SheetCurrent(Optimizable):
 
         dphi = np.diff(self.surface.quadpoints_phi)[0]
         dtheta = np.diff(self.surface.quadpoints_theta)[0]
-        # TODO: i dont think we need |n| in dA since it is already in K?
-        # normal = self.surface.normal() # (nphi, ntheta, 3)
-        self.dA = dphi * dtheta #* np.linalg.norm(normal, axis=-1, keepdims=True)
+        self.dA = dphi * dtheta 
 
-        mu0 =  1.256637061e-6 # N / A^2
-        self.mu0_over_4pi = mu0 / (4 * np.pi) 
 
     def compute_h_fourier(self, x, nhat):
         """
@@ -398,7 +409,6 @@ class SheetCurrent(Optimizable):
             np.ndarray: (ndofs,) array of the normal component of the projection of the field onto each fourier mode. The array
                 is organized in the same way as the names array.
         """
-        mu0_over_4pi = self.mu0_over_4pi # float
         dA = self.dA # (nphi, ntheta, 1)
         n_cross_grad_theta = self.n_cross_grad_theta # (nphi, ntheta, 3)
         n_cross_grad_phi = self.n_cross_grad_phi # (nphi, ntheta, 3)
@@ -417,6 +427,9 @@ class SheetCurrent(Optimizable):
         # storage
         h_array = np.zeros(self.n_dofs) # (ndofs,)
 
+        const = 1 / 4 / np.pi
+
+        # TODO: we can do this with a fourier transform!
         idx = 0
         # compute h^S
         for m in range(self.M+1):
@@ -424,7 +437,7 @@ class SheetCurrent(Optimizable):
                 fourier = np.cos(2 * np.pi * (m * thetas - self.nfp * n * phis)) # (nphi, ntheta)
                 n_cross_grad_alpha = 2 * np.pi * (m * n_cross_grad_theta  - self.nfp * n * n_cross_grad_phi) # (nphi, ntheta, 3)
                 dot = np.sum(n_cross_grad_alpha * kernel_cross_nhat, axis=-1) # (nphi, ntheta)
-                h_array[idx] = mu0_over_4pi * np.sum(fourier * dot * dA, axis=(-2, -1)) # (ndofs,)     
+                h_array[idx] = const * np.sum(fourier * dot * dA, axis=(-2, -1)) # (ndofs,)     
                 idx += 1
 
         # compute h^C
@@ -436,7 +449,7 @@ class SheetCurrent(Optimizable):
                     fourier = - np.sin(2 * np.pi * (m * thetas - self.nfp * n * phis)) # (nphi, ntheta)
                     n_cross_grad_alpha = 2 * np.pi * (m * n_cross_grad_theta  - self.nfp * n * n_cross_grad_phi) # (nphi, ntheta, 3)
                     dot = np.sum(n_cross_grad_alpha * kernel_cross_nhat, axis=-1) # (nphi, ntheta)
-                    h_array[idx] = mu0_over_4pi * np.sum(fourier * dot * dA, axis=(-2, -1)) # (ndofs,)     
+                    h_array[idx] = const * np.sum(fourier * dot * dA, axis=(-2, -1)) # (ndofs,)     
                     idx += 1
 
         return h_array
@@ -447,7 +460,7 @@ class SheetCurrent(Optimizable):
         Compute the normal field generated by the secular term
 
             h^P(r) = B^P(r) * nhat(r) = c * int [(n' x grad(phi')) x kernel(r,r')] * nhat(r) dA'
-            c = mu0_over_4pi * I_P / (2 * pi)
+            c = mu0_over_4pi * G
 
         Args:
             x (np.ndarray): (3,) array with a point in space where the secular term is evaluated.
@@ -456,7 +469,7 @@ class SheetCurrent(Optimizable):
         Returns:
             np.ndarray: The secular term for the Biot-Savart integral.
         """
-        const = self.mu0_over_4pi * self.I_P / (2 * np.pi)
+        const = self.G / 4 / np.pi
 
         # kernel
         diff = x - self.quadpoints # (nphi, ntheta, 3)
