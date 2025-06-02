@@ -17,6 +17,9 @@ class SheetCurrent(Optimizable):
             G = mu0 * I_P / (2 * pi),
         where I_P is the sum of the currents through the hole in the torus.
 
+        NOTE:
+            In Simsopt, angles run from 0 to 1, so by Amperes law, G = mu0 * I_P.
+
         This class is often used to solve to find vacuum equilibrium for a given boundary.
 
         Example usage:
@@ -24,7 +27,7 @@ class SheetCurrent(Optimizable):
             surf = ...
             I_P = np.abs(sum([np.abs(coil.current.get_value()) for coil in coils]))
             mu0 =  4 * np.pi * 10**(-7)
-            G = I_P * mu0 # in Simsopt, grad(phi) absorbs the 1/2pi factor since angles are on [0, 1]
+            G = I_P * mu0 
             surf_winding = surf.to_RZFourier().copy(ntheta=2 * M + 1, nphi=2 * N + 1, range='field period')
             surf_winding.extend_via_normal(2 * surf.minor_radius())
             current = SheetCurrent(surf_winding, G, M, N)
