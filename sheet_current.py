@@ -29,6 +29,7 @@ class SheetCurrent(Optimizable):
             mu0 =  4 * np.pi * 10**(-7)
             G = I_P * mu0 
             surf_winding = surf.to_RZFourier().copy(ntheta=2 * M + 1, nphi=2 * N + 1, range='field period')
+            # NOTE: make sure the normal is outward facing!!!
             surf_winding.extend_via_normal(2 * surf.minor_radius())
             current = SheetCurrent(surf_winding, G, M, N)
             current.fit(surf)
