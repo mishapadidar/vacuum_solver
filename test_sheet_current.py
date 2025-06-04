@@ -87,6 +87,32 @@ def test_current():
     err = np.max(np.abs(np.sum(K * normal, axis=-1)))
     assert err < 1e-14, "Current is not tangent to the surface: max error = {}".format(err)
 
+    """ Test the current is stellarator symmetric"""
+    nfp = 2
+    surf = SurfaceRZFourier(nfp, stellsym=True, mpol=2, ntor=2, 
+                            quadpoints_phi=np.linspace(0, 1/nfp, 64, endpoint=True), # endpoint=True to include 1/nfp
+                            quadpoints_theta=np.linspace(0, 1, 64, endpoint=True))
+    surf.set('rc(0,1)', 1.0)
+    surf.set('rc(1,0)', 0.1)
+    surf.set('zs(0,1)', 0.1)
+    G = 1e-5
+    M = 4
+    N = 4
+    current = SheetCurrent(surf, G, M, N)
+    current.set('s(0,0)', 1.23e-7)
+    current.set('s(1,0)', 2e-7) # make sure entries are O(1) for floating point error
+    current.set('s(0,1)', 1e-7)
+    current.set('s(0,3)', 1.23e-7)
+    K = current.current() # (nphi, ntheta, 3)
+
+    # check for stellarator symmetry
+    modK = np.linalg.norm(K, axis=-1)
+    err = modK - modK[::-1,::-1]
+    err = np.max(np.abs(err))
+    # error is sensitive to scale of G and modes etc
+    assert err < 3e-14, "Current is not stellarator symmetric: max error = {}".format(err)
+
+
 
 def test_B():
     """ Test the divergence and curl of B using finite differences. """
@@ -166,6 +192,36 @@ def test_B():
     err = np.max(np.abs(curlB_fd))
     print('curlB_fd err', err)
     assert err < 1e-8, "Curl of B is not zero: max error = {}".format(err)
+
+
+    """ Test the field is stellarator symmetric"""
+    nfp = 2
+    surf = SurfaceRZFourier(nfp, stellsym=True, mpol=2, ntor=2, 
+                            quadpoints_phi=np.linspace(0, 1/nfp, 64, endpoint=True), # endpoint=True to include 1/nfp
+                            quadpoints_theta=np.linspace(0, 1, 64, endpoint=True))
+    surf.set('rc(0,1)', 1.0)
+    surf.set('rc(1,0)', 0.1)
+    surf.set('zs(0,1)', 0.1)
+    G = 1e-5
+    M = 4
+    N = 4
+    surf_winding = surf.copy(range='field period')
+    surf_winding.extend_via_normal(surf_winding.minor_radius())
+    current = SheetCurrent(surf_winding, G, M, N)
+    current.set('s(0,0)', 1.23e-7)
+    current.set('s(1,0)', 2e-7) # make sure entries are O(1) for floating point error
+    current.set('s(0,1)', 1e-7)
+    current.set('s(0,3)', 1.23e-7)
+
+    # check for stellarator symmetry
+    X = surf.gamma()
+    B = current.B(X.reshape((-1, 3))) # (nphi, ntheta, 3)
+    modB = np.linalg.norm(B, axis=-1).reshape(X.shape[:-1])
+    err = modB - modB[::-1,::-1]
+    err = np.max(np.abs(err))
+    print('stellsym error', err)
+    # error is sensitive to scale of G and modes etc
+    assert err < 3e-14, "Current is not stellarator symmetric: max error = {}".format(err)
 
 
 def test_gradB():

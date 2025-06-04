@@ -36,7 +36,7 @@ class SheetCurrent(Optimizable):
             print(current.squared_flux(surf))
         
         Parameters:
-            surface (Surface): A Simsopt surface object.
+            surface (Surface): A Simsopt surface object. The quadrature points should discretize one field period.
             G (float): Normalized poloidal current.
             phi (float): The potential function.
             M,N (int): Highest fourier mode number (inclusive) in the poloidal and toroidal directions.
@@ -226,6 +226,7 @@ class SheetCurrent(Optimizable):
         quadpoints_1fp = self.surface.gamma() # (nphi, ntheta, 3)
         nphi, ntheta, _ = quadpoints_1fp.shape
 
+        # TODO: exploit stellarator symmetry
         # rotate to get full torus
         quadpoints = np.zeros((self.nfp * nphi, ntheta, 3))
         K = np.zeros((self.nfp * nphi, ntheta, 3))
